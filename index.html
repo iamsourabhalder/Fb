@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Cloud Portal</title>
+    <style>
+        /* Embedded CSS to replace external Tailwind CDN */
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --slate-800: #1e293b;
+            --slate-400: #94a3b8;
+            --slate-100: #f1f5f9;
+        }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+        body { background: var(--bg-gradient); min-height: 100vh; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 1rem; width: 100%; max-width: 400px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; height: fit-content; }
+        .header { background: var(--slate-800); padding: 1.5rem; text-align: center; color: white; }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        .header p { margin: 5px 0 0; font-size: 0.8rem; color: var(--slate-400); }
+        .content { padding: 1.5rem; }
+        .hidden { display: none !important; }
+        input { width: 100%; padding: 12px; margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 8px; outline: none; transition: ring 0.2s; }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); }
+        button { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .tabs { display: flex; border-bottom: 1px solid #eee; margin-bottom: 1.5rem; }
+        .tab { flex: 1; padding: 10px; text-align: center; color: #64748b; font-weight: bold; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+        .dash-nav { display: flex; gap: 5px; background: #f8fafc; padding: 4px; border-radius: 8px; margin-bottom: 1.5rem; }
+        .nav-item { flex: 1; padding: 6px; font-size: 0.8rem; text-align: center; border-radius: 6px; cursor: pointer; }
+        .nav-item.active { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: bold; }
+        .data-card { padding: 10px; background: white; border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px; }
+        .data-card b { color: var(--primary); font-size: 0.9rem; }
+        .data-card small { display: block; color: #94a3b8; font-size: 0.7rem; }
+        .loader { text-align: center; padding: 10px; color: var(--primary); font-weight: bold; font-size: 0.8rem; }
+        .toast { margin-top: 15px; padding: 10px; border-radius: 6px; text-align: center; font-size: 0.85rem; }
+        .toast.error { background: #fee2e2; color: #dc2626; }
+        .toast.success { background: #dcfce7; color: #166534; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { width: 20px; height: 20px; border: 2px solid #ddd; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="glass">
+        <div class="header">
+            <h1>Cloud Portal</h1>
+            <p>Self-contained GitHub Storage</p>
+        </div>
+
+        <div class="content">
+            <div id="loader" class="hidden">
+                <div class="spinner"></div>
+                <div class="loader">Syncing GitHub...</div>
+            </div>
+
+            <!-- AUTH VIEW -->
+            <div id="auth-view">
+                <div class="tabs">
+                    <div id="tab-login" class="tab active" onclick="switchTab('login')">Login</div>
+                    <div id="tab-signup" class="tab" onclick="switchTab('signup')">Sign Up</div>
+                </div>
+                <input type="text" id="auth-user" placeholder="Username">
+                <input type="password" id="auth-pass" placeholder="Password">
+                <button id="auth-btn" class="btn-primary" onclick="handleAuth()">Login</button>
+            </div>
+
+            <!-- DASHBOARD VIEW -->
+            <div id="dash-view" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                    <span style="font-weight:bold">Hello, <span id="display-name" style="color:var(--primary)">User</span></span>
+                    <button onclick="logout()" style="width:auto; padding:4px 10px; font-size:0.7rem; background:#eee">Logout</button>
+                </div>
+
+                <div class="dash-nav">
+                    <div id="btn-profile" class="nav-item active" onclick="showPage('profile')">Profile</div>
+                    <div id="btn-entries" class="nav-item" onclick="showPage('entries')">My Data</div>
+                </div>
+
+                <div id="page-profile">
+                    <div style="padding:15px; background:#eef2ff; border-radius:8px; border:1px solid #e0e7ff; margin-bottom:10px;">
+                        <small style="color:#6366f1; font-weight:bold; text-transform:uppercase">Status</small>
+                        <div style="color:#374151">Verified User</div>
+                    </div>
+                    <div style="padding:15px; background:#f9fafb; border-radius:8px; border:1px solid #f3f4f6;">
+                        <small style="color:#9ca3af; font-weight:bold; text-transform:uppercase">Repository</small>
+                        <div id="storage-path" style="font-size:0.7rem; word-break:break-all; font-family:monospace"></div>
+                    </div>
+                </div>
+
+                <div id="page-entries" class="hidden">
+                    <div style="display:flex; gap:5px; margin-bottom:15px;">
+                        <input type="text" id="data-input" placeholder="New entry..." style="margin:0; font-size:0.8rem;">
+                        <button onclick="saveData()" class="btn-primary" style="width:auto; white-space:nowrap">Save</button>
+                    </div>
+                    <div id="entries-list" style="max-height:200px; overflow-y:auto;"></div>
+                </div>
+            </div>
+
+            <div id="toast" class="toast hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        const GITHUB = {
+            TOKEN: 'YOUR_GITHUB_TOKEN', 
+            OWNER: 'iamsourabhalder,
+            REPO: 'Fb',
+            FILE: 'data.json'
+        };
+
+        let currentView = 'login';
+        let loggedUser = null;
+        let dbCache = { users: {}, entries: {} };
+
+        window.onload = () => {
+            document.getElementById('storage-path').innerText = `${GITHUB.OWNER}/${GITHUB.REPO}/${GITHUB.FILE}`;
+        };
+
+        async function fetchDB() {
+            const url = `https://api.github.com/repos/${GITHUB.OWNER}/${GITHUB.REPO}/contents/${GITHUB.FILE}`;
+            const res = await fetch(url, { headers: { 'Authorization': `token ${GITHUB.TOKEN}` } });
+            if (!res.ok) throw new Error("Data file not found");
+            const data = await res.json();
+            return { sha: data.sha, content: JSON.parse(atob(data.content)) };
+        }
+
+        async function updateDB(newContent, sha) {
+            const url = `https://api.github.com/repos/${GITHUB.OWNER}/${GITHUB.REPO}/contents/${GITHUB.FILE}`;
+            await fetch(url, {
+                method: 'PUT',
+                headers: { 'Authorization': `token ${GITHUB.TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: "Sync",
+                    content: btoa(JSON.stringify(newContent, null, 2)),
+                    sha: sha
+                })
+            });
+        }
+
+        function switchTab(tab) {
+            currentView = tab;
+            document.getElementById('tab-login').className = tab === 'login' ? 'tab active' : 'tab';
+            document.getElementById('tab-signup').className = tab === 'signup' ? 'tab active' : 'tab';
+            document.getElementById('auth-btn').innerText = tab === 'login' ? 'Login' : 'Create Account';
+        }
+
+        async function handleAuth() {
+            const user = document.getElementById('auth-user').value.trim();
+            const pass = document.getElementById('auth-pass').value.trim();
+            if (!user || !pass) return showToast("Required fields empty", "error");
+
+            showLoader(true);
+            try {
+                const { sha, content } = await fetchDB();
+                if (currentView === 'signup') {
+                    if (content.users[user]) {
+                        showToast("Username taken", "error");
+                    } else {
+                        content.users[user] = pass;
+                        content.entries = content.entries || {};
+                        content.entries[user] = [];
+                        await updateDB(content, sha);
+                        showToast("Created! Now Login.", "success");
+                        switchTab('login');
+                    }
+                } else {
+                    if (content.users[user] === pass) {
+                        loggedUser = user;
+                        dbCache = content;
+                        enterDashboard();
+                    } else {
+                        showToast("Wrong credentials", "error");
+                    }
+                }
+            } catch (e) { showToast("GitHub Error: " + e.message, "error"); }
+            showLoader(false);
+        }
+
+        function enterDashboard() {
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('dash-view').classList.remove('hidden');
+            document.getElementById('display-name').innerText = loggedUser;
+            renderEntries();
+        }
+
+        async function saveData() {
+            const val = document.getElementById('data-input').value.trim();
+            if (!val) return;
+            showLoader(true);
+            try {
+                const { sha, content } = await fetchDB();
+                if (!content.entries[loggedUser]) content.entries[loggedUser] = [];
+                content.entries[loggedUser].unshift({ text: val, ts: new Date().toLocaleString() });
+                await updateDB(content, sha);
+                dbCache = content;
+                renderEntries();
+                document.getElementById('data-input').value = "";
+                showToast("Saved to GitHub", "success");
+            } catch (e) { showToast("Save failed", "error"); }
+            showLoader(false);
+        }
+
+        function renderEntries() {
+            const list = document.getElementById('entries-list');
+            const userEntries = dbCache.entries[loggedUser] || [];
+            list.innerHTML = userEntries.length ? '' : '<center><small>No data.</small></center>';
+            userEntries.forEach(item => {
+                list.innerHTML += `<div class="data-card"><b>${item.text}</b><small>${item.ts}</small></div>`;
+            });
+        }
+
+        function showPage(page) {
+            document.getElementById('page-profile').classList.toggle('hidden', page !== 'profile');
+            document.getElementById('page-entries').classList.toggle('hidden', page !== 'entries');
+            document.getElementById('btn-profile').className = page === 'profile' ? 'nav-item active' : 'nav-item';
+            document.getElementById('btn-entries').className = page === 'entries' ? 'nav-item active' : 'nav-item';
+        }
+
+        function logout() { location.reload(); }
+
+        function showLoader(show) {
+            document.getElementById('loader').classList.toggle('hidden', !show);
+            const views = [document.getElementById('auth-view'), document.getElementById('dash-view')];
+            views.forEach(v => v.style.opacity = show ? "0.3" : "1");
+            views.forEach(v => v.style.pointerEvents = show ? "none" : "auto");
+        }
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = `toast ${type}`;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        }
+    </script>
+</body>
+</html>
+
