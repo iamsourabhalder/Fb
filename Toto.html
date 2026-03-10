@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub API Portal</title>
     <style>
-        /* Modern Base Styles (Replacement for Tailwind) */
+        /* Modern Base Styles */
         :root {
             --primary: #2563eb;
             --primary-hover: #1d4ed8;
@@ -70,7 +70,7 @@
         label {
             display: block;
             font-size: 0.875rem;
-            font-medium;
+            font-weight: 500;
             margin-bottom: 0.25rem;
         }
 
@@ -213,7 +213,7 @@
                 </div>
                 <button type="submit" id="regBtn" class="btn btn-blue">
                     <span id="regLoader" class="loader hidden"></span>
-                    <span>Submit & Register</span>
+                    <span id="regBtnText">Submit & Register</span>
                 </button>
             </form>
         </div>
@@ -231,7 +231,7 @@
                 </div>
                 <button type="submit" id="loginBtn" class="btn btn-green">
                     <span id="loginLoader" class="loader hidden"></span>
-                    <span>Login & Open Page</span>
+                    <span id="loginBtnText">Login & Open Page</span>
                 </button>
             </form>
         </div>
@@ -247,6 +247,8 @@
             const loginSect = document.getElementById('login-section');
             const regTab = document.getElementById('tab-register');
             const loginTab = document.getElementById('tab-login');
+            
+            document.getElementById('status').classList.add('hidden');
             
             if (tab === 'register') {
                 regSect.classList.remove('hidden');
@@ -270,15 +272,20 @@
                 const fileData = await getResponse.json();
                 sha = fileData.sha;
             }
+
             const putResponse = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
                 method: 'PUT',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 
+                    'Authorization': `Bearer ${token}`, 
+                    'Content-Type': 'application/json' 
+                },
                 body: JSON.stringify({
                     message: message,
                     content: btoa(unescape(encodeURIComponent(content))),
                     sha: sha || undefined
                 })
             });
+
             if (!putResponse.ok) {
                 const err = await putResponse.json();
                 throw new Error(err.message || putResponse.statusText);
@@ -299,31 +306,69 @@
             
             const localUrl = URL.createObjectURL(file);
             document.getElementById('regLoader').classList.remove('hidden');
+            document.getElementById('regBtn').disabled = true;
             
             try {
                 const getResp = await fetch(`https://api.github.com/repos/${repo}/contents/${config.dataFilePath}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+                
                 let logs = [];
                 if (getResp.status === 200) {
                     const data = await getResp.json();
                     logs = JSON.parse(atob(data.content));
                 }
                 
-                const pagePath = `pages/${user.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.html`;
-                logs.push({ username: user, password: pass, mobile, idCard, fileName: file.name, pagePath, timestamp: new Date().toISOString() });
+                const safeName = user.toLowerCase().replace(/\s+/g, '-');
+                const pagePath = `pages/${safeName}-${Date.now()}.html`;
+                
+                logs.push({ 
+                    username: user, 
+                    password: pass, 
+                    mobile, 
+                    idCard, 
+                    fileName: file.name, 
+                    pagePath, 
+                    timestamp: new Date().toISOString() 
+                });
                 
                 await updateFile(repo, token, config.dataFilePath, JSON.stringify(logs, null, 2), `Reg: ${user}`);
 
-                const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:50px;"><h1>Welcome ${user}</h1><p>ID: ${idCard}</p><p>Mobile: ${mobile}</p></body></html>`;
+                const html = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Profile: ${user}</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 90%; max-width: 400px; }
+        .info { text-align: left; background: #f9f9f9; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+        .row { margin-bottom: 0.5rem; display: flex; justify-content: space-between; font-size: 0.9rem; }
+        .label { font-weight: bold; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Welcome, ${user}</h1>
+        <div class="info">
+            <div class="row"><span class="label">ID Card:</span> <span>${idCard}</span></div>
+            <div class="row"><span class="label">Mobile:</span> <span>${mobile}</span></div>
+            <div class="row"><span class="label">Status:</span> <span style="color:green">Verified</span></div>
+        </div>
+        <p style="font-size:0.7rem; color:#999">File uploaded: ${file.name}</p>
+    </div>
+</body>
+</html>`;
+
                 await updateFile(repo, token, pagePath, html, `Profile: ${user}`);
 
-                showMessage('Registration Successful!', 'success');
+                showMessage('Registration Successful! Redirecting...', 'success');
                 setTimeout(() => window.location.href = localUrl, 1500);
             } catch (err) {
-                showMessage(err.message, 'error');
+                showMessage("GitHub Error: " + err.message, 'error');
             } finally {
                 document.getElementById('regLoader').classList.add('hidden');
+                document.getElementById('regBtn').disabled = false;
             }
         };
 
@@ -337,20 +382,22 @@
             if(!token || !repo) { showMessage("Please fill API settings", "error"); return; }
 
             document.getElementById('loginLoader').classList.remove('hidden');
+            document.getElementById('loginBtn').disabled = true;
 
             try {
                 const resp = await fetch(`https://api.github.com/repos/${repo}/contents/${config.dataFilePath}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
 
-                if (resp.status !== 200) throw new Error("Database not found.");
+                if (resp.status !== 200) throw new Error("Database not found. Please register first.");
 
                 const data = await resp.json();
                 const logs = JSON.parse(atob(data.content));
                 const found = logs.find(u => u.username === user && u.password === pass);
 
                 if (found) {
-                    showMessage('Login Successful!', 'success');
+                    showMessage('Login Successful! Opening page...', 'success');
+                    // Construct URL using jsDelivr or raw.githubusercontent for direct rendering
                     const pageUrl = `https://raw.githubusercontent.com/${repo}/main/${found.pagePath}`;
                     setTimeout(() => window.open(pageUrl, '_blank'), 1500);
                 } else {
@@ -360,13 +407,15 @@
                 showMessage(err.message, 'error');
             } finally {
                 document.getElementById('loginLoader').classList.add('hidden');
+                document.getElementById('loginBtn').disabled = false;
             }
         };
 
         function showMessage(text, type) {
             const statusDiv = document.getElementById('status');
             statusDiv.textContent = text;
-            statusDiv.className = 'status-box ' + (type === 'success' ? 'success-msg' : 'error-msg');
+            statusDiv.classList.remove('hidden', 'success-msg', 'error-msg');
+            statusDiv.classList.add(type === 'success' ? 'success-msg' : 'error-msg');
         }
     </script>
 </body>
