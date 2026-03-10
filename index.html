@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Cloud Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="app" class="max-w-md mx-auto glass rounded-2xl shadow-2xl overflow-hidden">
+        <!-- Header -->
+        <div class="bg-slate-800 p-6 text-white text-center">
+            <h1 class="text-2xl font-bold">Cloud Storage Portal</h1>
+            <p class="text-slate-400 text-sm mt-1">Stored securely in GitHub data.json</p>
+        </div>
+
+        <div class="p-6">
+            <!-- Loading Indicator -->
+            <div id="loader" class="hidden text-center py-4">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+                <p class="text-sm mt-2 text-indigo-600 font-medium">Syncing with GitHub...</p>
+            </div>
+
+            <!-- AUTH VIEW -->
+            <div id="auth-view">
+                <div class="flex border-b mb-6">
+                    <button id="tab-login" class="flex-1 py-2 font-bold border-b-2 border-indigo-600 text-indigo-600" onclick="switchTab('login')">Login</button>
+                    <button id="tab-signup" class="flex-1 py-2 font-bold text-slate-500" onclick="switchTab('signup')">Sign Up</button>
+                </div>
+
+                <div class="space-y-4">
+                    <input type="text" id="auth-user" placeholder="Username" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none">
+                    <input type="password" id="auth-pass" placeholder="Password" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none">
+                    <button id="auth-btn" onclick="handleAuth()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition">Login</button>
+                </div>
+            </div>
+
+            <!-- DASHBOARD VIEW -->
+            <div id="dash-view" class="hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-slate-800">Welcome, <span id="display-name" class="text-indigo-600">User</span>!</h2>
+                    <button onclick="logout()" class="text-xs bg-slate-200 hover:bg-slate-300 px-3 py-1 rounded text-slate-600">Logout</button>
+                </div>
+
+                <!-- Navigation Tabs for "Multiple Pages" -->
+                <div class="flex gap-2 bg-slate-100 p-1 rounded-lg">
+                    <button onclick="showPage('profile')" id="btn-profile" class="flex-1 py-1 rounded text-sm bg-white shadow-sm font-medium">Profile</button>
+                    <button onclick="showPage('entries')" id="btn-entries" class="flex-1 py-1 rounded text-sm text-slate-500">My Data</button>
+                </div>
+
+                <!-- Page 1: Profile -->
+                <div id="page-profile" class="space-y-4">
+                    <div class="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                        <label class="block text-xs font-bold text-indigo-400 uppercase">Account Status</label>
+                        <p class="text-slate-700">Verified User</p>
+                    </div>
+                    <div class="p-4 bg-slate-50 rounded-lg border">
+                        <label class="block text-xs font-bold text-slate-400 uppercase">Storage Location</label>
+                        <code class="text-xs break-all" id="storage-path">github.com/.../data.json</code>
+                    </div>
+                </div>
+
+                <!-- Page 2: Entries -->
+                <div id="page-entries" class="hidden space-y-4">
+                    <div class="flex gap-2">
+                        <input type="text" id="data-input" placeholder="Save something..." class="flex-1 p-2 border rounded text-sm">
+                        <button onclick="saveData()" class="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">Save</button>
+                    </div>
+                    <div id="entries-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                        <!-- Entries appear here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast Messages -->
+            <div id="toast" class="mt-4 p-3 rounded-lg text-sm text-center hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        /** --- CONFIGURATION --- **/
+        const GITHUB = {
+            TOKEN: 'YOUR_GITHUB_TOKEN', // ⚠️ Security: Exposed in client-side. Use only in private/test environments.
+            OWNER: 'iamsourabhalder,
+            REPO: 'fb',
+            FILE: 'data.json'
+        };
+
+        let currentView = 'login';
+        let loggedUser = null;
+        let dbCache = { users: {}, content: {} };
+
+        // Initialization
+        window.onload = () => {
+            document.getElementById('storage-path').innerText = `${GITHUB.OWNER}/${GITHUB.REPO}/${GITHUB.FILE}`;
+        };
+
+        /** --- CORE LOGIC --- **/
+
+        async function fetchDB() {
+            const url = `https://api.github.com/repos/${GITHUB.OWNER}/${GITHUB.REPO}/contents/${GITHUB.FILE}`;
+            const res = await fetch(url, {
+                headers: { 'Authorization': `token ${GITHUB.TOKEN}` }
+            });
+            if (!res.ok) throw new Error("Could not find data.json in repo");
+            const data = await res.json();
+            const content = JSON.parse(atob(data.content));
+            return { sha: data.sha, content: content || { users: {}, entries: {} } };
+        }
+
+        async function updateDB(newContent, sha) {
+            const url = `https://api.github.com/repos/${GITHUB.OWNER}/${GITHUB.REPO}/contents/${GITHUB.FILE}`;
+            const res = await fetch(url, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `token ${GITHUB.TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: `Database Update by ${loggedUser || 'System'}`,
+                    content: btoa(JSON.stringify(newContent, null, 2)),
+                    sha: sha
+                })
+            });
+            return res.ok;
+        }
+
+        /** --- UI ACTIONS --- **/
+
+        function switchTab(tab) {
+            currentView = tab;
+            document.getElementById('tab-login').className = tab === 'login' ? 'flex-1 py-2 font-bold border-b-2 border-indigo-600 text-indigo-600' : 'flex-1 py-2 font-bold text-slate-500';
+            document.getElementById('tab-signup').className = tab === 'signup' ? 'flex-1 py-2 font-bold border-b-2 border-indigo-600 text-indigo-600' : 'flex-1 py-2 font-bold text-slate-500';
+            document.getElementById('auth-btn').innerText = tab === 'login' ? 'Login' : 'Create Account';
+        }
+
+        async function handleAuth() {
+            const user = document.getElementById('auth-user').value.trim();
+            const pass = document.getElementById('auth-pass').value.trim();
+            if (!user || !pass) return showToast("Enter details", "error");
+
+            showLoader(true);
+            try {
+                const { sha, content } = await fetchDB();
+                
+                if (currentView === 'signup') {
+                    if (content.users[user]) {
+                        showToast("User already exists", "error");
+                    } else {
+                        content.users[user] = pass;
+                        content.entries = content.entries || {};
+                        content.entries[user] = [];
+                        await updateDB(content, sha);
+                        showToast("Account Created! Please login.", "success");
+                        switchTab('login');
+                    }
+                } else {
+                    if (content.users[user] === pass) {
+                        loggedUser = user;
+                        dbCache = content;
+                        enterDashboard();
+                    } else {
+                        showToast("Invalid credentials", "error");
+                    }
+                }
+            } catch (e) {
+                showToast(e.message, "error");
+            }
+            showLoader(false);
+        }
+
+        function enterDashboard() {
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('dash-view').classList.remove('hidden');
+            document.getElementById('display-name').innerText = loggedUser;
+            renderEntries();
+        }
+
+        async function saveData() {
+            const val = document.getElementById('data-input').value.trim();
+            if (!val) return;
+
+            showLoader(true);
+            try {
+                const { sha, content } = await fetchDB();
+                if (!content.entries[loggedUser]) content.entries[loggedUser] = [];
+                content.entries[loggedUser].unshift({
+                    text: val,
+                    ts: new Date().toLocaleString()
+                });
+                await updateDB(content, sha);
+                dbCache = content;
+                renderEntries();
+                document.getElementById('data-input').value = "";
+                showToast("Data saved to GitHub!", "success");
+            } catch (e) {
+                showToast("Save failed", "error");
+            }
+            showLoader(false);
+        }
+
+        function renderEntries() {
+            const list = document.getElementById('entries-list');
+            const userEntries = dbCache.entries[loggedUser] || [];
+            list.innerHTML = userEntries.length ? '' : '<p class="text-xs text-slate-400 text-center">No data saved yet.</p>';
+            userEntries.forEach(item => {
+                list.innerHTML += `
+                    <div class="p-2 bg-white border rounded text-xs">
+                        <div class="font-bold text-indigo-600">${item.text}</div>
+                        <div class="text-[10px] text-slate-400">${item.ts}</div>
+                    </div>
+                `;
+            });
+        }
+
+        function showPage(page) {
+            document.getElementById('page-profile').classList.toggle('hidden', page !== 'profile');
+            document.getElementById('page-entries').classList.toggle('hidden', page !== 'entries');
+            
+            document.getElementById('btn-profile').className = page === 'profile' ? 'flex-1 py-1 rounded text-sm bg-white shadow-sm font-medium' : 'flex-1 py-1 rounded text-sm text-slate-500';
+            document.getElementById('btn-entries').className = page === 'entries' ? 'flex-1 py-1 rounded text-sm bg-white shadow-sm font-medium' : 'flex-1 py-1 rounded text-sm text-slate-500';
+        }
+
+        function logout() {
+            loggedUser = null;
+            location.reload();
+        }
+
+        function showLoader(show) {
+            document.getElementById('loader').classList.toggle('hidden', !show);
+            if (show) {
+                document.getElementById('auth-view').classList.add('opacity-50', 'pointer-events-none');
+                document.getElementById('dash-view').classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                document.getElementById('auth-view').classList.remove('opacity-50', 'pointer-events-none');
+                document.getElementById('dash-view').classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.className = `mt-4 p-3 rounded-lg text-sm text-center ${type === 'error' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        }
+    </script>
+</body>
+</html>
+
