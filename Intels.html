@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub API Data Submitter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #3498db;
+            width: 20px;
+            height: 20px;
+            animation: spin 2s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <h1 class="text-2xl font-bold mb-2 text-gray-800 text-center">Submit to GitHub</h1>
+        <p class="text-xs text-gray-500 text-center mb-6">Enter details to log data and generate a profile</p>
+        
+        <form id="submissionForm" class="space-y-4">
+            <!-- GitHub Credentials (Internalized) -->
+            <div class="p-3 bg-blue-50 rounded-lg border border-blue-100 mb-4">
+                <label class="block text-xs font-bold text-blue-800 uppercase tracking-wide">API Settings</label>
+                <div class="mt-2 space-y-2">
+                    <input type="password" id="ghToken" placeholder="GitHub PAT Token" required class="block w-full px-3 py-2 text-xs border border-blue-200 rounded shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    <input type="text" id="ghRepo" placeholder="Owner/Repo-Name" required class="block w-full px-3 py-2 text-xs border border-blue-200 rounded shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+
+            <!-- User Data -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Username</label>
+                <input type="text" id="username" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Password</label>
+                <input type="password" id="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Mobile Number</label>
+                <input type="tel" id="mobile" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">ID Card Number</label>
+                <input type="text" id="idCard" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Upload Target File</label>
+                <input type="file" id="targetFile" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                <p class="text-[10px] text-gray-400 mt-1">This file will be opened automatically upon successful submission.</p>
+            </div>
+
+            <button type="submit" id="submitBtn" class="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center shadow-md">
+                <span id="btnLoader" class="loader hidden"></span>
+                <span id="btnText">Submit & Generate Profile</span>
+            </button>
+        </form>
+
+        <div id="status" class="mt-6 p-4 rounded-md text-sm hidden"></div>
+    </div>
+
+    <script>
+        const config = {
+            dataFilePath: 'data.json'
+        };
+
+        async function updateFile(repo, token, path, content, message) {
+            const getResponse = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            let sha = "";
+            if (getResponse.status === 200) {
+                const fileData = await getResponse.json();
+                sha = fileData.sha;
+            }
+
+            const putResponse = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: message,
+                    content: btoa(unescape(encodeURIComponent(content))),
+                    sha: sha || undefined
+                })
+            });
+
+            if (!putResponse.ok) {
+                const err = await putResponse.json();
+                throw new Error(`GitHub API Error (${path}): ${err.message}`);
+            }
+            return true;
+        }
+
+        document.getElementById('submissionForm').onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const token = document.getElementById('ghToken').value;
+            const repo = document.getElementById('ghRepo').value;
+            const fileInput = document.getElementById('targetFile');
+            const file = fileInput.files[0];
+            const localFileUrl = URL.createObjectURL(file);
+
+            setLoading(true);
+
+            const formData = {
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                mobile: document.getElementById('mobile').value,
+                idCard: document.getElementById('idCard').value,
+                fileName: file.name,
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                // Task A: Update data.json
+                const getResponse = await fetch(`https://api.github.com/repos/${repo}/contents/${config.dataFilePath}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                let currentContent = [];
+                if (getResponse.status === 200) {
+                    const fileData = await getResponse.json();
+                    try {
+                        currentContent = JSON.parse(atob(fileData.content));
+                        if (!Array.isArray(currentContent)) currentContent = [currentContent];
+                    } catch (e) { currentContent = []; }
+                }
+                currentContent.push(formData);
+                await updateFile(repo, token, config.dataFilePath, JSON.stringify(currentContent, null, 2), `Log user: ${formData.username}`);
+
+                // Task B: Create personalized HTML profile
+                const newHtmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Profile: ${formData.username}</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 90%; }
+        h1 { color: #1a73e8; margin-bottom: 1rem; }
+        .info { text-align: left; background: #f9f9f9; padding: 1.5rem; border-radius: 8px; margin-top: 1rem; border: 1px solid #eee; }
+        .row { margin-bottom: 0.5rem; display: flex; justify-content: space-between; }
+        .label { font-weight: bold; color: #666; font-size: 0.9rem; }
+        .val { color: #333; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Welcome, ${formData.username}!</h1>
+        <p>Your record has been stored securely.</p>
+        <div class="info">
+            <div class="row"><span class="label">ID Card:</span> <span class="val">${formData.idCard}</span></div>
+            <div class="row"><span class="label">Mobile:</span> <span class="val">${formData.mobile}</span></div>
+            <div class="row"><span class="label">File:</span> <span class="val">${formData.fileName}</span></div>
+        </div>
+        <p style="font-size: 0.75rem; color: #999; margin-top: 2rem;">Timestamp: ${formData.timestamp}</p>
+    </div>
+</body>
+</html>`;
+
+                const newFileName = `pages/${formData.username.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.html`;
+                await updateFile(repo, token, newFileName, newHtmlContent, `Generate page for ${formData.username}`);
+
+                showMessage('Success! GitHub records updated. Redirecting to your file...', 'success');
+                
+                setTimeout(() => {
+                    window.location.href = localFileUrl;
+                }, 2000);
+
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        function setLoading(isLoading) {
+            const submitBtn = document.getElementById('submitBtn');
+            const btnLoader = document.getElementById('btnLoader');
+            const btnText = document.getElementById('btnText');
+            if (isLoading) {
+                submitBtn.disabled = true;
+                btnLoader.classList.remove('hidden');
+                btnText.textContent = 'Uploading...';
+            } else {
+                submitBtn.disabled = false;
+                btnLoader.classList.add('hidden');
+                btnText.textContent = 'Submit & Generate Profile';
+            }
+        }
+
+        function showMessage(text, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = text;
+            statusDiv.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700');
+            if (type === 'success') statusDiv.classList.add('bg-green-100', 'text-green-700');
+            else statusDiv.classList.add('bg-red-100', 'text-red-700');
+        }
+    </script>
+</body>
+</html>
+
